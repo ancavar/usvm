@@ -11,6 +11,8 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable-jvm:${Versions.collections}")
     implementation("com.microsoft.onnxruntime:onnxruntime:${Versions.onnxruntime}")
+    implementation("io.github.rchowell:dotlin:1.0.2")
+
     testImplementation("io.mockk:mockk:${Versions.mockk}")
     testImplementation("org.junit.jupiter:junit-jupiter-params:${Versions.junitParams}")
 
