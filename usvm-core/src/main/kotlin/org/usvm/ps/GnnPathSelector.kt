@@ -35,7 +35,8 @@ class GnnPathSelector<Statement, Method, State, Block>(
 
     private fun dotGraph(
         historyEdges: Boolean = false,
-        parentEdges: Boolean = true
+        parentEdges: Boolean = true,
+        colorNonCoverageZone: Boolean = true,
     ): String {
         val groupedByMethod = blockGraph.blocks.groupBy { blockGraph.methodOf(it) }
         return digraph(name = "game_map", strict = true) {
@@ -51,6 +52,18 @@ class GnnPathSelector<Statement, Method, State, Block>(
                     color = "#${Integer.toHexString(method.hashCode()).substring(0, 6)}"
                     blocks.forEach { block ->
                         val blockId = block.id.toString()
+                        + blockId + {
+                            color = if (colorNonCoverageZone || block.inCoverageZone) {
+                                when {
+                                    block.coveredByTest -> "forestgreen"
+                                    block.visitedByState -> "yellow2"
+                                    block.touchedByState -> "darkorange3"
+                                    else -> "orangered4"
+                                }
+                            } else {
+                                "gray"
+                            }
+                        }
                         blockGraph.successors(block).forEach { successor ->
                             val successorId = successor.id.toString()
                             blockId - successorId + {
