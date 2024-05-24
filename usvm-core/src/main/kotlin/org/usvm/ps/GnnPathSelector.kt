@@ -3,11 +3,14 @@ package org.usvm.ps
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import io.github.rchowell.dotlin.DotNodeShape
+import io.github.rchowell.dotlin.digraph
 import org.usvm.StateId
 import org.usvm.UPathSelector
 import org.usvm.UState
 import org.usvm.statistics.BasicBlock
 import org.usvm.statistics.BlockGraph
+import java.io.File
 import java.nio.FloatBuffer
 import java.nio.LongBuffer
 
@@ -30,9 +33,101 @@ class GnnPathSelector<Statement, Method, State, Block>(
     private val path = "model.onnx"
     private val oracle = Oracle(path)
 
+    private fun dotGraph(
+        historyEdges: Boolean = false,
+        parentEdges: Boolean = true,
+        colorNonCoverageZone: Boolean = true,
+    ): String {
+        val groupedByMethod = blockGraph.blocks.groupBy { blockGraph.methodOf(it) }
+        return digraph(name = "game_map", strict = true) {
+            node {
+                style = "rounded,filled"
+                shape = DotNodeShape.RECTANGLE
+            }
+
+            // Subgraph for each method
+            groupedByMethod.entries.forEachIndexed { i, (method, blocks) ->
+                +subgraph("cluster_$i") {
+                    label = method.toString()
+                    color = "#${Integer.toHexString(method.hashCode()).substring(0, 6)}"
+                    blocks.forEach { block ->
+                        val blockId = block.id.toString()
+                        + blockId + {
+                            color = if (colorNonCoverageZone || block.inCoverageZone) {
+                                when {
+                                    block.coveredByTest -> "forestgreen"
+                                    block.visitedByState -> "yellow2"
+                                    block.touchedByState -> "darkorange3"
+                                    else -> "orangered4"
+                                }
+                            } else {
+                                "gray"
+                            }
+                        }
+                        blockGraph.successors(block).forEach { successor ->
+                            val successorId = successor.id.toString()
+                            blockId - successorId + {
+                                color = "blueviolet"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Call and return edges
+            groupedByMethod.values.flatten().forEach { block ->
+                val blockId = block.id.toString()
+                blockGraph.callees(block).forEach { callee ->
+                    val calleeId = callee.id.toString()
+                    blockId - calleeId + {
+                        label = "call"
+                        color = "cyan3"
+                    }
+                }
+                blockGraph.returnOf(block).forEach { returnSite ->
+                    val returnId = returnSite.id.toString()
+                    blockId - returnId + {
+                        label = "return"
+                        color = "aquamarine4"
+                    }
+                }
+            }
+
+            // States and their edges
+            statesMap.values.forEach { state ->
+                val stateId = "\"State ${state.id}\""
+                +stateId + {
+                    shape = DotNodeShape.DIAMOND
+                    color = "coral3"
+                }
+                if (historyEdges) {
+                    state.history.values.forEach { stateHistoryElement ->
+                        val blockId = stateHistoryElement.blockId.toString()
+                        stateId - blockId + {
+                            label = "history(${stateHistoryElement.numOfVisits})"
+                        }
+                    }
+                }
+                if (parentEdges) {
+                    state.children.forEach { child ->
+                        val childId = "\"State ${child.id}\""
+                        stateId - childId + {
+                            label = "parent of"
+                        }
+                    }
+                }
+                stateId - state.position.toString() + { label = "position" }
+            }
+        }.dot()
+    }
+
     override fun isEmpty() = statesMap.isEmpty()
 
     override fun peek(): State {
+        if (totalSteps == 100) {
+            val file = File("game_map_${totalSteps}_steps.gv")
+             file.writeText(dotGraph())
+        }
         totalSteps++
         if (statesMap.size == 1) {
             return statesMap.keys.single().also { lastPeekedState = it }
